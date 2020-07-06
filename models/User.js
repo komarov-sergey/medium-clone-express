@@ -71,4 +71,14 @@ UserSchema.methods.toAuthJSON = function () {
   };
 };
 
+UserSchema.methods.toProfileJSONFor = function (user) {
+  return {
+    username: this.username,
+    bio: this.bio,
+    image:
+      this.image || "https://static.productionready.io/images/smiley-cyrus.jpg",
+    following: false, // not implement yet
+  };
+};
+
 mongoose.model("User", UserSchema);
