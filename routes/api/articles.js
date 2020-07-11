@@ -4,7 +4,37 @@ const mongoose = require("mongoose");
 
 const Article = mongoose.model("Article");
 const User = mongoose.model("User");
+const Comment = mongoose.model("Comment");
 const auth = require("../auth");
+
+router.param("article", function (req, res, next, slug) {
+  Article.findOne({ slug: slug })
+    .populate("author")
+    .then(function (article) {
+      if (!article) {
+        return res.sendStatus(404);
+      }
+
+      req.article = article;
+
+      return next();
+    })
+    .catch(next);
+});
+
+router.param("comment", function (req, res, next, id) {
+  Comment.findById(id)
+    .then(function (comment) {
+      if (!comment) {
+        return res.sendStatus(404);
+      }
+
+      req.comment = comment;
+
+      return next();
+    })
+    .catch(next);
+});
 
 router.post("/", auth.required, function (req, res, next) {
   User.findById(req.payload.id)
@@ -21,21 +51,6 @@ router.post("/", auth.required, function (req, res, next) {
         console.log(article.author);
         return res.json({ article: article.toJSONFor(user) });
       });
-    })
-    .catch(next);
-});
-
-router.param("article", function (req, res, next, slug) {
-  Article.findOne({ slug: slug })
-    .populate("author")
-    .then(function (article) {
-      if (!article) {
-        return res.sendStatus(404);
-      }
-
-      req.article = article;
-
-      return next();
     })
     .catch(next);
 });
@@ -93,7 +108,7 @@ router.delete("/:article", auth.required, function (req, res, next) {
 });
 
 router.post("/:article/favorite", auth.required, function (req, res, next) {
-  var articleId = req.article._id;
+  const articleId = req.article._id;
   console.log("ffffffffffffffffffff", req.payload);
   User.findById(req.payload.id)
     .then(function (user) {
@@ -111,7 +126,7 @@ router.post("/:article/favorite", auth.required, function (req, res, next) {
 });
 
 router.delete("/:article/favorite", auth.required, function (req, res, next) {
-  var articleId = req.article._id;
+  const articleId = req.article._id;
 
   User.findById(req.payload.id)
     .then(function (user) {
@@ -126,6 +141,76 @@ router.delete("/:article/favorite", auth.required, function (req, res, next) {
       });
     })
     .catch(next);
+});
+
+router.post("/:article/comments", auth.required, function (req, res, next) {
+  User.findById(req.payload.id).then(function (user) {
+    if (!user) {
+      return res.sendStatus(401);
+    }
+
+    var comment = new Comment(req.body.comment);
+    comment.article = req.article;
+    comment.author = user;
+
+    return comment
+      .save()
+      .then(function () {
+        console.log("req.article: ", req.article);
+        req.article.comments.concat(comment);
+
+        return req.article.save().then(function (article) {
+          res.json({ comment: comment.toJSONFor(user) });
+        });
+      })
+      .catch(next);
+  });
+});
+
+router.get("/:article/comments", auth.optional, function (req, res, next) {
+  Promise.resolve(req.payload ? User.findById(req.payload.id) : null)
+    .then(function (user) {
+      return req.article
+        .populate({
+          path: "comments",
+          populate: {
+            path: "author",
+          },
+          options: {
+            sort: {
+              createdAt: "desc",
+            },
+          },
+        })
+        .execPopulate()
+        .then(function (article) {
+          console.log("req.article.comments", req.article.comments);
+          return res.json({
+            comments: req.article.comments.map(function (comment) {
+              return comment.toJSONFor(user);
+            }),
+          });
+        });
+    })
+    .catch(next);
+});
+
+router.delete("/:article/comments/:comment", auth.required, function (
+  req,
+  res,
+  next
+) {
+  if (req.comment.author.toString() === req.payload.id.toString()) {
+    req.article.comments.remove(req.comment._id);
+    req.article
+      .save()
+      .then(Comment.find({ _id: req.comment._id }).remove().exec())
+      .then(function () {
+        res.sendStatus(204);
+      });
+  } else {
+    res.sendStatus(403);
+  }
 });
 
 module.exports = router;
